@@ -1,3 +1,9 @@
-streamlit
-azure-cognitiveservices-speech
-libasound2
+streamlit==1.20.0
+azure-cognitiveservices-speech==1.38.0
+fsspec>=2023.5.0
+pyyaml>=5.1
+tqdm>=4.42.1
+more-itertools
+torch
+triton<3,>=2.0.0; platform_machine == "x86_64" and sys_platform == "linux" or sys_platform == "linux2"
+regex>=2022.1.18
