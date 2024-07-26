@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import json
 from azure.cognitiveservices.speech import AudioDataStream, SpeechSynthesizer, SpeechConfig, SpeechSynthesisOutputFormat
 
 # Azure TTS subscription key and region
@@ -10,9 +11,9 @@ region = 'westus'
 speech_config = SpeechConfig(subscription=subscription_key, region=region)
 speech_config.set_speech_synthesis_output_format(SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm)
 
-# Voice and supported styles dictionary for non-translation voices
+# Voice and supported styles dictionary
 voices_and_styles = {
-    'en-US-AlloyMultilingualNeural': ['angry', 'chat', 'cheerful', 'customerservice', 'empathetic', 'excited', 'friendly', 'hopeful', 'narration-professional', 'newscast-casual', 'newscast-formal', 'sad', 'shouting', 'terrified', 'unfriendly', 'whispering'],
+    'de-DE-ConradNeural': ['cheerful'],
     'en-GB-RyanNeural': ['chat', 'cheerful'],
     'en-GB-SoniaNeural': ['cheerful', 'sad'],
     'en-IN-NeerjaNeural': ['cheerful', 'empathetic', 'newscast'],
@@ -26,47 +27,26 @@ voices_and_styles = {
     'en-US-LunaNeural': ['conversation'],
     'en-US-NancyNeural': ['angry', 'cheerful', 'excited', 'friendly', 'hopeful', 'sad', 'shouting', 'terrified', 'unfriendly', 'whispering'],
     'en-US-SaraNeural': ['angry', 'cheerful', 'excited', 'friendly', 'hopeful', 'sad', 'shouting', 'terrified', 'unfriendly', 'whispering'],
-    'en-US-TonyNeural': ['angry', 'cheerful', 'excited', 'friendly', 'hopeful', 'sad', 'shouting', 'terrified', 'unfriendly', 'whispering'],
+    'en-US-TonyNeural': ['angry', 'cheerful', 'excited', 'friendly', 'hopeful', 'sad', 'shouting', 'terrified', 'unfriendly', 'whispering']
 }
 
-# Voices for translation without styles
-translation_voices = [
-    'en-US-JennyMultilingualNeural',
-    'en-US-GuyMultilingualNeural',
-    'en-US-AriaMultilingualNeural',
-    'en-US-TonyMultilingualNeural',
-    'en-GB-RyanMultilingualNeural',
-    'en-IN-NeerjaMultilingualNeural'
-]
+# Function to generate SSML for a given segment with specified style
+def generate_ssml(start_time, end_time, text, voice, style):
+    duration = end_time - start_time
+    words_per_minute = 150  # Average speaking rate
+    num_words = len(text.split())
+    actual_duration = (num_words / words_per_minute) * 60  # in seconds
+    speaking_rate = actual_duration / duration
 
-# Voices without styles
-voices_without_styles = [
-    'en-US-AvaMultilingualNeural',
-    'en-US-AndrewMultilingualNeural',
-    'en-US-EmmaMultilingualNeural',
-    'en-US-BrianMultilingualNeural'
-]
-
-# Function to generate SSML
-def generate_ssml(text, voice, style=None):
-    if style:
-        ssml = f'''
-        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US">
-            <voice name="{voice}">
-                <mstts:express-as style="{style}">
-                    {text}
-                </mstts:express-as>
-            </voice>
-        </speak>
-        '''
-    else:
-        ssml = f'''
-        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US">
-            <voice name="{voice}">
-                {text}
-            </voice>
-        </speak>
-        '''
+    ssml = f'''
+    <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
+        <voice name="{voice}">
+            <mstts:express-as style="{style}">
+                <prosody rate="{speaking_rate:.2f}">{text}</prosody>
+            </mstts:express-as>
+        </voice>
+    </speak>
+    '''
     return ssml
 
 # Function to synthesize speech from SSML
@@ -76,47 +56,41 @@ def synthesize_ssml_to_speech(ssml):
     audio_stream = AudioDataStream(result)
     return audio_stream
 
-# Function to handle voice and style selection
-def get_voice_and_style(translation, voice_type):
-    if translation == 'Yes':
-        selected_voice = st.selectbox('Select Voice', translation_voices)
-        selected_style = None  # No style for translation
-    else:
-        if voice_type == 'Voices with Styles':
-            selected_voice = st.selectbox('Select Voice', list(voices_and_styles.keys()))
-            selected_style = st.selectbox('Select Speaking Style', voices_and_styles[selected_voice])
-        else:
-            selected_voice = st.selectbox('Select Voice', voices_without_styles)
-            selected_style = None
-    return selected_voice, selected_style
-
 # Streamlit UI
 st.title('Text-to-Speech Generator')
 
-# Dropdown menu for selecting voice translation
-translation = st.selectbox('Do you want to do voice translation?', ['No', 'Yes'])
+# Input field for captions
+captions_input = st.text_area('Enter the captions as JSON', height=200)
 
-# Dropdown menu for selecting voice type (only shown if translation is No)
-if translation == 'No':
-    voice_type = st.selectbox('Select Voice Type', ['Voices with Styles', 'Voices without Styles'])
-else:
-    voice_type = None  # Not used when translation is Yes
+# Dropdown menu for selecting voice
+selected_voice = st.selectbox('Select Voice', list(voices_and_styles.keys()))
 
-selected_voice, selected_style = get_voice_and_style(translation, voice_type)
-
-# Text area for entering text
-text_input = st.text_area('Enter the text you want to convert to speech', height=200)
+# Dropdown menu for selecting style based on selected voice
+selected_style = st.selectbox('Select Speaking Style', voices_and_styles[selected_voice])
 
 generate_button = st.button('Generate Speech')
 
-# Generate speech if button is clicked
-if generate_button:
-    if text_input:
-        ssml = generate_ssml(text_input, selected_voice, selected_style)
+# Function to generate TTS for all segments
+def generate_tts_for_segments(captions, voice, style):
+    for segment in captions:
+        start_time = segment['start']
+        end_time = segment['end']
+        text = segment['text']
+        
+        ssml = generate_ssml(start_time, end_time, text, voice, style)
         audio_stream = synthesize_ssml_to_speech(ssml)
-        audio_file = f'{int(time.time())}_speech.wav'  # Unique filename based on timestamp
+        audio_file = f'{int(time.time())}_speech_{start_time}_{end_time}.wav'  # Unique filename based on timestamp
         audio_stream.save_to_wav_file(audio_file)
         st.audio(audio_file, format='audio/wav')
-        st.success(f'Generated speech saved to: {audio_file}')
-    else:
-        st.error('Please enter some text to convert to speech.')
+        st.success(f'Generated speech for segment: "{text}" saved to: {audio_file}')
+
+# Generate speech for all segments if button is clicked
+if generate_button:
+    try:
+        captions = json.loads(captions_input)
+        if not selected_style or not selected_voice:
+            st.error('Please select a speaking style and a voice.')
+        else:
+            generate_tts_for_segments(captions, selected_voice, selected_style)
+    except json.JSONDecodeError:
+        st.error('Invalid JSON format. Please enter the captions as valid JSON.')
